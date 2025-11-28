@@ -1,0 +1,23 @@
+# ==========================
+# IGNORAR DATASETS xBD
+# ==========================
+DB/*
+DB_filtered/*
+!DB/.gitkeep
+!DB_filtered/.gitkeep
+!DB_filtered/images/.gitkeep
+!DB_filtered/labels/.gitkeep
+!DB_filtered/masks/.gitkeep
+!DB_filtered/contours/.gitkeep
+!DB_filtered/scale/.gitkeep
+
+# Ignore virtual environments
+venv/
+*.env
+
+# Ignore Python cache   
+__pycache__/
+*.pyc
+
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
