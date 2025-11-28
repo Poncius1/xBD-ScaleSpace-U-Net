@@ -4,14 +4,9 @@ Entrenamiento de la U-Net Multiescala.
 Este script:
     - Carga los DataLoaders (imágenes multiescala + máscaras)
     - Define la función de pérdida BCE + Dice Loss
-    - Entrena el modelo U-Net multiescala
+    - Entrena la U-Net multiescala
     - Evalúa en validación
-    - Guarda el mejor modelo según métrica Dice
-
-Requisitos:
-    - datasetMultiscale.py
-    - model_unet.py
-    - prepareDataset.py (para generar train.csv y val.csv)
+    - Guarda el mejor modelo según Dice Score
 """
 
 import torch
@@ -29,36 +24,25 @@ from model_unet import UNetMultiScale
 # ============================================================
 
 def dice_coef(pred, target, eps=1e-7):
-    """
-    Calcula Dice Coefficient entre dos máscaras:
-        pred   : probabilidades 0–1
-        target : ground-truth binario
-
-    Dice = 2 * |A ∩ B| / (|A| + |B|)
-    """
+    """ Calcula Dice Coefficient entre predicciones y máscaras GT. """
     pred = pred.contiguous()
     target = target.contiguous()
 
     intersection = (pred * target).sum(dim=(2, 3))
     union = pred.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
-
     dice = (2.0 * intersection + eps) / (union + eps)
     return dice.mean()
 
 
 # ============================================================
-# Pérdida combinada: BCE + Dice Loss
+# Pérdida BCE + Dice Loss
 # ============================================================
 
 class BCEDiceLoss(nn.Module):
     """
-    Pérdida combinada muy común para segmentación binaria:
-
-        Loss = α * BCE + β * DiceLoss
-
-    Mejor que usar solo BCE, especialmente en datasets desbalanceados.
+    Loss combinada:
+        α * BCE + β * DiceLoss
     """
-
     def __init__(self, weight_bce=0.5, weight_dice=0.5):
         super().__init__()
         self.bce = nn.BCEWithLogitsLoss()
@@ -67,22 +51,17 @@ class BCEDiceLoss(nn.Module):
 
     def forward(self, logits, targets):
         bce_loss = self.bce(logits, targets)
-
         probs = torch.sigmoid(logits)
         dice = dice_coef(probs, targets)
         dice_loss = 1.0 - dice
-
         return self.weight_bce * bce_loss + self.weight_dice * dice_loss
 
 
 # ============================================================
-# Entrenamiento de una época
+# Entrenamiento por época
 # ============================================================
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
-    """
-    Ejecuta una época de entrenamiento completa.
-    """
     model.train()
     running_loss = 0.0
 
@@ -102,13 +81,10 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
 
 
 # ============================================================
-# Evaluación sin gradientes
+# Evaluación (sin gradientes)
 # ============================================================
 
 def evaluate(model, loader, criterion, device):
-    """
-    Evalúa pérdida y Dice en el conjunto de validación.
-    """
     model.eval()
     running_loss = 0.0
     running_dice = 0.0
@@ -143,40 +119,30 @@ def train_unet_multiscale(
     device_str="cuda",
     model_save_path: Path = Path("models/unet_multiscale.pth"),
 ) -> Dict[str, Any]:
-    """
-    Entrena la U-Net multiescala y guarda el mejor modelo según Dice.
 
-    Retorna un historial con:
-        train_loss[]
-        val_loss[]
-        val_dice[]
-    """
-
-    # Selección de dispositivo
+    # Selección de GPU o CPU
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
     print("Usando dispositivo:", device)
 
-    # Crear modelo
+    # Modelo
     model = UNetMultiScale(in_channels=6, out_channels=1).to(device)
 
-    # Cargar DataLoaders
+    # DataLoaders
     train_loader, val_loader = create_dataloaders(batch_size=batch_size)
 
-    # Función de pérdida
-    criterion = BCEDiceLoss(weight_bce=0.5, weight_dice=0.5)
+    # Loss
+    criterion = BCEDiceLoss()
 
-    # Optimizador recomendado
+    # Optimizador
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    # Carpeta para guardar pesos
+    # Crear carpeta para guardar modelo
     model_save_path.parent.mkdir(parents=True, exist_ok=True)
 
     history = {"train_loss": [], "val_loss": [], "val_dice": []}
     best_dice = -1.0
 
-    # ------------------------------
-    # Loop principal de entrenamiento
-    # ------------------------------
+    # Loop de entrenamiento
     for epoch in range(1, num_epochs + 1):
         print(f"\nEpoch {epoch}/{num_epochs}")
 
@@ -188,20 +154,25 @@ def train_unet_multiscale(
         history["val_dice"].append(val_dice)
 
         print(f"  Train Loss: {train_loss:.4f}")
-        print(f"  Val   Loss: {val_loss:.4f}  |  Val Dice: {val_dice:.4f}")
+        print(f"  Val   Loss: {val_loss:.4f} | Val Dice: {val_dice:.4f}")
 
         # Guardar mejor modelo
         if val_dice > best_dice:
             best_dice = val_dice
             torch.save(model.state_dict(), model_save_path)
-            print(f"  → Nuevo mejor modelo guardado (Dice={best_dice:.4f})")
+            print(f"  → Nuevo mejor modelo guardado (Dice = {best_dice:.4f})")
 
     return history
 
 
 # ============================================================
-# Ejecución directa
+# Main — Ejecutar entrenamiento desde consola
 # ============================================================
 
 if __name__ == "__main__":
-    train_unet_multiscale(num_epochs=5, batch_size=1)
+    train_unet_multiscale(
+        num_epochs=15,
+        batch_size=1,
+        lr=1e-4,
+        device_str="cuda"
+    )
