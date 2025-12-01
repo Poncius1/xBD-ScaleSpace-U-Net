@@ -3,6 +3,9 @@ from pathlib import Path
 # Ruta base del proyecto (ajusta si es necesario)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+
+HOLD_IMAGES_DIR = PROJECT_ROOT / "DB" / "hold_images_labels_targets" / "hold" / "images"
+
 # Carpeta donde están los datasets originales descomprimidos
 DB_TRAIN_ROOT = PROJECT_ROOT / "DB" / "train_images_labels_targets" / "train"
 
