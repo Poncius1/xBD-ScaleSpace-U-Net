@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 import cv2
 import numpy as np
 
-from config import (
+from Segmentation.Code.config import (
     DB_FILTERED_ROOT,
     FILTERED_IMAGES_DIR,
     FILTERED_MASKS_DIR,

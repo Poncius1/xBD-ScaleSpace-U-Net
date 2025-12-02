@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from config import DB_TRAIN_ROOT, DB_FILTERED_ROOT, FILTERED_IMAGES_DIR, FILTERED_LABELS_DIR, SELECTED_EVENTS
+from Segmentation.Code.config import DB_TRAIN_ROOT, DB_FILTERED_ROOT, FILTERED_IMAGES_DIR, FILTERED_LABELS_DIR, SELECTED_EVENTS
 
 
 def filter_events(

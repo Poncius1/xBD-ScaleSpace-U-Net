@@ -3,7 +3,7 @@ from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from pathlib import Path
 
-from config import DB_FILTERED_ROOT
+from Segmentation.Code.config import DB_FILTERED_ROOT
 from prepareDataset import load_multiscale_sample
 
 

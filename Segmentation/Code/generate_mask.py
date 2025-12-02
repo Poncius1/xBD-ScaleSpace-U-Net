@@ -3,7 +3,7 @@ import json
 import cv2
 import numpy as np
 from pathlib import Path
-from config import FILTERED_LABELS_DIR, FILTERED_MASKS_DIR, FILTERED_IMAGES_DIR
+from Segmentation.Code.config import FILTERED_LABELS_DIR, FILTERED_MASKS_DIR, FILTERED_IMAGES_DIR
 
 
 def load_polygons_and_size(json_path: Path):

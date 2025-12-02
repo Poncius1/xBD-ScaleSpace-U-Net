@@ -6,9 +6,10 @@ from pathlib import Path
 
 from model_unet import UNetMultiScale
 from scale_space import generate_scale_space  
-from config import HOLD_IMAGES_DIR   
+from Segmentation.Code.config import HOLD_IMAGES_DIR   
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # ============================================================
 # 1. Cargar modelo
@@ -20,7 +21,6 @@ def load_model(model_path: Path):
     model.load_state_dict(state)
     model.to(DEVICE)
     model.eval()
-
     print(f"Modelo cargado: {model_path}")
     return model
 
@@ -30,21 +30,17 @@ def load_model(model_path: Path):
 # ============================================================
 
 def load_multiscale_holdout(img_path: Path):
-    """Carga una imagen de holdout y genera σ1, σ2, σ4 en RAM."""
     img_bgr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
     if img_bgr is None:
         raise FileNotFoundError(f"No se pudo leer {img_path}")
 
-    # Escalas
     s1, s2, s4 = generate_scale_space(img_bgr)
 
-    # Normalizar
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
     s1 = cv2.cvtColor(s1, cv2.COLOR_BGR2GRAY).astype("float32") / 255.0
     s2 = cv2.cvtColor(s2, cv2.COLOR_BGR2GRAY).astype("float32") / 255.0
     s4 = cv2.cvtColor(s4, cv2.COLOR_BGR2GRAY).astype("float32") / 255.0
 
-    # Ensamble multiescala
     sample = np.stack([
         img_rgb[:, :, 0],
         img_rgb[:, :, 1],
@@ -52,7 +48,7 @@ def load_multiscale_holdout(img_path: Path):
         s1, s2, s4
     ], axis=0)
 
-    return sample, img_rgb  # también regresamos RGB original para mostrar
+    return sample, img_rgb
 
 
 # ============================================================
@@ -66,26 +62,23 @@ def extract_contours(binary_mask):
 
 
 # ============================================================
-# 4. Guardar figura compuesta (probabilidad, máscara, contornos)
+# 4. Guardar figura compuesta
 # ============================================================
 
 def save_combined_figure(prob, binary, img_rgb, contours, out_path: Path, title: str):
     plt.figure(figsize=(15, 5))
     plt.suptitle(title, fontsize=14)
 
-    # Probabilidades
     plt.subplot(1, 3, 1)
     plt.title("Probabilidades")
     plt.imshow(prob, cmap="jet")
     plt.axis("off")
 
-    # Máscara
     plt.subplot(1, 3, 2)
     plt.title("Máscara binaria")
     plt.imshow(binary, cmap="gray")
     plt.axis("off")
 
-    # Contornos sobre imagen
     plt.subplot(1, 3, 3)
     plt.title("Contornos sobre imagen")
     plt.imshow(img_rgb)
@@ -103,9 +96,14 @@ def save_combined_figure(prob, binary, img_rgb, contours, out_path: Path, title:
 # ============================================================
 
 def run_inference_holdout(model, max_images=None):
+
     hold_dir = Path(HOLD_IMAGES_DIR)
-    out_dir = Path("predictions")
-    out_dir.mkdir(exist_ok=True)
+
+    # NUEVO: carpetas separadas
+    out_masks = Path("predictions/masks")
+    out_compare = Path("predictions/compare")
+    out_masks.mkdir(parents=True, exist_ok=True)
+    out_compare.mkdir(parents=True, exist_ok=True)
 
     image_paths = sorted(list(hold_dir.glob("*.png")))
     if max_images:
@@ -116,26 +114,30 @@ def run_inference_holdout(model, max_images=None):
     for img_path in image_paths:
         print(f"→ procesando {img_path.name}")
 
-        # 1. Preparar tensores multiescala
         sample, img_rgb = load_multiscale_holdout(img_path)
         tensor = torch.tensor(sample, dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
-        # 2. Predicción
         with torch.no_grad():
             logits = model(tensor)
             prob = torch.sigmoid(logits)[0, 0].cpu().numpy()
 
-        # 3. Máscara binaria
         binary = (prob > 0.5).astype("uint8")
-
-        # 4. Contornos
         contours = extract_contours(binary)
 
-        # 5. Guardar figura combinada
-        out_path = out_dir / f"{img_path.stem}.png"
-        save_combined_figure(prob, binary, img_rgb, contours, out_path, img_path.name)
+        # =====================================
+        # A) Guardar máscara binaria (para clasificación)
+        # =====================================
+        mask_out = out_masks / f"{img_path.stem}_mask.png"
+        cv2.imwrite(str(mask_out), binary * 255)
 
-    print("\n✔ Completado: figuras guardadas en /predictions/")
+        # =====================================
+        # B) Guardar figura compuesta
+        # =====================================
+        compare_out = out_compare / f"{img_path.stem}.png"
+        save_combined_figure(prob, binary, img_rgb, contours, compare_out, img_path.name)
+
+    print("\nCompletado: máscaras → /predictions/masks/")
+    print("Completado: figuras → /predictions/compare/")
 
 
 # ============================================================
@@ -144,5 +146,4 @@ def run_inference_holdout(model, max_images=None):
 
 if __name__ == "__main__":
     model = load_model(Path("models/unet_multiscale_30.pth"))
-    run_inference_holdout(model, max_images=3)  # cambia a None para TODAS
- 
+    run_inference_holdout(model, max_images=3)

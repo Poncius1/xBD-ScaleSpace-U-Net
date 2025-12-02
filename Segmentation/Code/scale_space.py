@@ -1,6 +1,6 @@
 import cv2
 from pathlib import Path
-from config import FILTERED_IMAGES_DIR, FILTERED_SCALES_DIR
+from Segmentation.Code.config import FILTERED_IMAGES_DIR, FILTERED_SCALES_DIR
 
 
 def generate_scale_space(img):
