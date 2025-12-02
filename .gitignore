@@ -11,6 +11,15 @@ DB_filtered/*
 !DB_filtered/contours/.gitkeep
 !DB_filtered/scale/.gitkeep
 
+
+
+Segmentation/DB_filtered_v1/*
+!DB_filtered_v1/.gitkeep
+!DB_filtered_v1/images/.gitkeep
+!DB_filtered_v1/labels/.gitkeep
+!DB_filtered_v1/masks/.gitkeep
+!DB_filtered_v1/contours/.gitkeep
+!DB_filtered_v1/scale/.gitkeep
 # Ignore virtual environments
 venv/
 *.env

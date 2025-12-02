@@ -171,7 +171,7 @@ def train_unet_multiscale(
 
 if __name__ == "__main__":
     train_unet_multiscale(
-        num_epochs=15,
+        num_epochs=50,
         batch_size=1,
         lr=1e-4,
         device_str="cuda"
