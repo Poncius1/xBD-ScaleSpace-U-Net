@@ -216,12 +216,14 @@ if __name__ == "__main__":
     # run_inference_holdout(model, save_masks=True, save_figures=False)
 
     # Solo figuras (reporte/presentación)
-    # run_inference_holdout(model, save_masks=False, save_figures=True)
+    #run_inference_holdout(model, max_images=5,save_masks=False, save_figures=True)
 
     # Ambas (pipeline completo)
     run_inference_holdout(
         model,
-        max_images=None,     # None = todas las POST
-        save_masks=True,
-        save_figures=False
+        selected_images=[
+            "santa-rosa-wildfire_00000108_post_disaster.png",
+        ],    
+        save_masks=False,
+        save_figures=True
     )

@@ -38,3 +38,7 @@ predictions/masks/*.png
 Clasification/dataset/*.png
 Clasification/dataset/holdout/*.png
 Clasification/dataset_train/*.png
+
+predictions_holdout/full_images_comparison/*.png
+Clasification/dataset/predictions_holdout/full_images_comparison/compare_hurricane-harvey_00000005_post_disaster.png
+Clasification/dataset/predictions_holdout/full_images_comparison/compare_hurricane-michael_00000364_post_disaster.png
