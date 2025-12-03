@@ -3,132 +3,182 @@ import cv2
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from shapely.geometry import shape, Polygon
 from tqdm import tqdm
 
-
-# ============================================================
-# CONFIG
-# ============================================================
+# =====================================================
+# RUTAS
+# =====================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-TRAIN_IMAGES = PROJECT_ROOT / "DB" / "train_images_labels_targets" / "train" / "images"
-TRAIN_TARGETS = PROJECT_ROOT / "DB" / "train_images_labels_targets" / "train" / "targets"
+DB_FILTERED = PROJECT_ROOT / "DB_filtered"
+IMAGES_DIR  = DB_FILTERED / "images"
+LABELS_DIR  = DB_FILTERED / "labels"
+TARGETS_DIR = DB_FILTERED / "targets"
 
-# --- IMPORTANTE ---
-# Aquí deben estar las MÁSCARAS PURAS generadas por tu U-Net
-PRED_MASKS_DIR = PROJECT_ROOT / "predictions" / "masks"   
+PRED_MASKS_DIR = PROJECT_ROOT / "predictions" / "masks_filtered"
 
-OUT_DATASET_DIR = PROJECT_ROOT / "Clasificacion" / "dataset"
+OUT_DATASET_DIR = PROJECT_ROOT / "Clasification" / "dataset"
 OUT_DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
 CSV_PATH = OUT_DATASET_DIR / "classification_dataset.csv"
 
 
-# ============================================================
-# UTILIDAD: convertir polígono a bounding box
-# ============================================================
-def polygon_to_bbox(poly: Polygon):
-    minx, miny, maxx, maxy = poly.bounds
-    return int(minx), int(miny), int(maxx), int(maxy)
+# =====================================================
+# VALIDACIONES SEGURAS
+# =====================================================
+
+def safe_crop(img, y1, y2, x1, x2):
+    """Recorte seguro, siempre valida límites y contenido."""
+    H, W = img.shape[:2]
+
+    if x1 < 0 or y1 < 0 or x2 > W or y2 > H:
+        return None
+
+    crop = img[y1:y2, x1:x2]
+
+    if crop is None or crop.size == 0:
+        return None
+
+    h, w = crop.shape[:2]
+    if h < 8 or w < 8:  # tamaño mínimo para evitar PNG corruptos
+        return None
+
+    if np.isnan(crop).any():
+        return None
+
+    return crop.copy()  # evitamos stride negativo
 
 
-# ============================================================
-# CREAR DATASET DE CLASIFICACIÓN
-# ============================================================
+def safe_write(path, img):
+    """Guardado seguro de PNG (si falla, retornamos False)."""
+    try:
+        ok = cv2.imwrite(str(path), img)
+        return bool(ok)
+    except Exception:
+        return False
+
+
+# =====================================================
+# NORMALIZACIÓN DE ETIQUETAS
+# =====================================================
+
+def normalize_damage(subtype_raw):
+    subtype = subtype_raw.strip().lower().replace("_", "-")
+
+    damage_map = {
+        "no-damage": 0,
+        "minor-damage": 1,
+        "major-damage": 2,
+        "destroyed": 3,
+        "unclassified": None,
+        "un-classified": None,
+        "unknown": None,
+        "none": None,
+        "": None
+    }
+
+    return damage_map.get(subtype, None)
+
+
+# =====================================================
+# EXTRAER BBOX DESDE TARGET
+# =====================================================
+
+def get_bounding_boxes(mask):
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+
+    boxes = []
+
+    for i in range(1, num_labels):
+        x, y, w, h, area = stats[i]
+
+        if area < 20:
+            continue
+
+        boxes.append((x, y, x + w, y + h))
+
+    return boxes
+
+
+# =====================================================
+# MAIN
+# =====================================================
+
 def build_classification_dataset():
 
     entries = []
+    json_files = sorted(LABELS_DIR.glob("*.json"))
 
-    target_files = sorted(TRAIN_TARGETS.glob("*.json"))
+    print(f"\nProcesando {len(json_files)} imágenes filtradas...\n")
 
-    print(f"\nProcesando {len(target_files)} archivos target...\n")
+    for json_path in tqdm(json_files):
 
-    for target_path in tqdm(target_files):
+        base = json_path.stem
 
-        image_id = target_path.stem.replace("_target", "")
+        rgb_path   = IMAGES_DIR      / f"{base}.png"
+        target_path = TARGETS_DIR    / f"{base}_target.png"
+        pred_path  = PRED_MASKS_DIR  / f"{base}.png"
 
-        rgb_path = TRAIN_IMAGES / f"{image_id}.png"
-        mask_path = PRED_MASKS_DIR / f"{image_id}.png"
-
-        if not rgb_path.exists():
-            print(f"[WARN] Falta RGB: {rgb_path}")
+        if not rgb_path.exists() or not target_path.exists() or not pred_path.exists():
             continue
 
-        if not mask_path.exists():
-            print(f"[WARN] Falta máscara predicha (U-Net): {mask_path}")
-            continue
-
-        # cargar rgb + máscara predicha
         rgb = cv2.imread(str(rgb_path))
-        pred_mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        target_mask = cv2.imread(str(target_path), cv2.IMREAD_GRAYSCALE)
+        pred_mask = cv2.imread(str(pred_path), cv2.IMREAD_GRAYSCALE)
 
-        if pred_mask is None:
-            print(f"[WARN] máscara inválida: {mask_path}")
+        if rgb is None or target_mask is None or pred_mask is None:
             continue
 
-        H, W = pred_mask.shape
+        H, W = target_mask.shape
 
-        # cargar anotaciones xBD
-        data = json.loads(target_path.read_text())
+        boxes = get_bounding_boxes(target_mask)
+        if len(boxes) == 0:
+            continue
 
-        for feat in data["features"]["xy"]:
+        data = json.loads(json_path.read_text())
+        features = data.get("features", {}).get("lng_lat", [])
 
-            damage = feat["properties"]["subtype"]
-            if damage == "unclassified":
+        # seleccionar etiqueta válida
+        label_value = None
+        for feat in features:
+            raw = feat["properties"].get("subtype", "")
+            label_value = normalize_damage(raw)
+            if label_value is not None:
+                break
+
+        if label_value is None:
+            continue
+
+        # procesar cada edificio
+        for (x1, y1, x2, y2) in boxes:
+
+            crop_rgb  = safe_crop(rgb, y1, y2, x1, x2)
+            crop_pred = safe_crop(pred_mask, y1, y2, x1, x2)
+
+            if crop_rgb is None or crop_pred is None:
                 continue
 
-            damage_label = {
-                "no-damage": 0,
-                "minor-damage": 1,
-                "major-damage": 2,
-                "destroyed": 3
-            }.get(damage, None)
+            out_rgb  = OUT_DATASET_DIR / f"{base}_{x1}_{y1}_rgb.png"
+            out_mask = OUT_DATASET_DIR / f"{base}_{x1}_{y1}_mask.png"
 
-            if damage_label is None:
+            if not safe_write(out_rgb, crop_rgb):
                 continue
-
-            poly = shape(feat["geometry"])
-
-            x1, y1, x2, y2 = polygon_to_bbox(poly)
-
-            # Limitar box a la imagen
-            x1 = max(0, min(x1, W - 1))
-            x2 = max(0, min(x2, W - 1))
-            y1 = max(0, min(y1, H - 1))
-            y2 = max(0, min(y2, H - 1))
-
-            if x2 <= x1 or y2 <= y1:
+            if not safe_write(out_mask, crop_pred):
                 continue
-
-            crop_rgb = rgb[y1:y2, x1:x2]
-            crop_mask = pred_mask[y1:y2, x1:x2]
-
-            if crop_rgb.size == 0:
-                continue
-
-            # rutas de salida
-            out_rgb = OUT_DATASET_DIR / f"{image_id}_{x1}_{y1}_rgb.png"
-            out_mask = OUT_DATASET_DIR / f"{image_id}_{x1}_{y1}_mask.png"
-
-            cv2.imwrite(str(out_rgb), crop_rgb)
-            cv2.imwrite(str(out_mask), crop_mask)
 
             entries.append({
                 "rgb": str(out_rgb),
                 "mask": str(out_mask),
-                "label": damage_label
+                "label": label_value
             })
 
     df = pd.DataFrame(entries)
     df.to_csv(CSV_PATH, index=False)
 
-    print("\n=====================================================")
-    print(" Dataset de CLASIFICACIÓN generado")
-    print(" Total edificios:", len(df))
-    print(" CSV:", CSV_PATH)
-    print("=====================================================")
+    print("\n✔ Dataset creado sin archivos corruptos.")
+    print("✔ Total edificios recortados:", len(df))
+    print("✔ CSV guardado en:", CSV_PATH)
 
 
 if __name__ == "__main__":

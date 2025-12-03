@@ -32,3 +32,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 models/*.pth
+
+predictions/masks_filtered/*.png
+predictions/masks/*.png
+Clasification/dataset/*.png
+Clasification/dataset/holdout/*.png
+Clasification/dataset_train/*.png
